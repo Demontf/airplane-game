@@ -45,15 +45,18 @@ class AudioManager:
         if music_name != self.current_music:
             try:
                 if music_name == 'menu':
-                    path = os.path.join('src', 'assets', 'sounds', 'menu_music.mp3')
+                    path = os.path.join('src', 'assets', 'sounds', 'bgmusic.mp3')  # Use bgmusic for menu too
                 else:  # game
                     path = os.path.join('src', 'assets', 'sounds', 'bgmusic.mp3')
                     
-                pygame.mixer.music.load(path)
-                pygame.mixer.music.play(-1)  # Loop indefinitely
-                self.current_music = music_name
-            except pygame.error:
-                print(f"Warning: Could not load music {music_name}")
+                if os.path.exists(path):
+                    pygame.mixer.music.load(path)
+                    pygame.mixer.music.play(-1)  # Loop indefinitely
+                    self.current_music = music_name
+                else:
+                    print(f"Warning: Music file not found: {path}")
+            except pygame.error as e:
+                print(f"Warning: Could not load music {music_name}: {e}")
                 
     def play_sound(self, sound_name):
         """Play a sound effect"""
