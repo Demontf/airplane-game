@@ -22,7 +22,7 @@ class Game:
         # Initialize clock
         self.clock = pygame.time.Clock()
         self.fps = config.getint('GAME', 'FPS')
-        
+
         # Initialize managers
         self.audio = AudioManager(config)
         self.animation = AnimationManager()
@@ -138,6 +138,7 @@ class Game:
 
     def update(self):
         """Update game state"""
+
         # Start performance monitoring
         self.performance.start_frame()
         
@@ -150,7 +151,7 @@ class Game:
             if not self.is_multiplayer or (self.is_multiplayer and self.config.getint('NETWORK', 'ROLE') == 1):
                 self.logic.spawn_enemies()
             self.logic.update_level()
-            
+
             # Update animations
             for effect in self.effects:
                 if effect.animation.finished:
