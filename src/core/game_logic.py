@@ -58,48 +58,54 @@ class GameLogic:
                     )
                     
                     # Check for missile unlock
-                    if (not self.game.players.sprite.missile_unlocked and 
-                        self.score >= self.config.getint('PLAYER', 'MISSILE_UNLOCK_SCORE')):
-                        self.game.players.sprite.missile_unlocked = True
-                        self.audio.play_sound('powerup')
+                    if len(self.game.players) > 0:
+                        player = next(iter(self.game.players))
+                        if (not hasattr(player, 'missile_unlocked') or not player.missile_unlocked) and \
+                           self.score >= self.config.getint('PLAYER', 'MISSILE_UNLOCK_SCORE'):
+                            player.missile_unlocked = True
+                            self.audio.play_sound('powerup')
         
         # Enemies hitting player
-        if self.game.players.sprite and not self.game.players.sprite.is_invincible:
-            hits = pygame.sprite.spritecollide(self.game.players.sprite, self.game.enemies, True)
-            if hits:
-                self.game.players.sprite.take_damage()
-                self.audio.play_sound('explosion')
-                # Create explosion animation
-                for hit in hits:
-                    self.game.effects.add(
-                        self.animation.get_animation('explosion', (48, 48)).frames[0]
-                    )
-                    # Add particles
-                    self.game.particle_emitter.emit(
-                        hit.rect.center,
-                        (255, 0, 0),
-                        num_particles=30,
-                        speed=10,
-                        lifetime=0.8
-                    )
-                
-                if self.game.players.sprite.lives <= 0:
-                    self.game_over()
+        if len(self.game.players) > 0:
+            player = next(iter(self.game.players))
+            if not player.is_invincible:
+                hits = pygame.sprite.spritecollide(player, self.game.enemies, True)
+                if hits:
+                    player.take_damage()
+                    self.audio.play_sound('explosion')
+                    # Create explosion animation
+                    for hit in hits:
+                        self.game.effects.add(
+                            self.animation.get_animation('explosion', (48, 48)).frames[0]
+                        )
+                        # Add particles
+                        self.game.particle_emitter.emit(
+                            hit.rect.center,
+                            (255, 0, 0),
+                            num_particles=30,
+                            speed=10,
+                            lifetime=0.8
+                        )
+                    
+                    if player.lives <= 0:
+                        self.game_over()
         
         # Enemy bullets hitting player
-        if self.game.players.sprite and not self.game.players.sprite.is_invincible:
-            hits = pygame.sprite.spritecollide(self.game.players.sprite, self.game.enemy_bullets, True)
-            if hits:
-                self.game.players.sprite.take_damage()
-                self.audio.play_sound('explosion')
-                # Create smaller explosion animation
-                for hit in hits:
-                    self.game.effects.add(
-                        self.animation.get_animation('explosion', (24, 24)).frames[0]
-                    )
-                
-                if self.game.players.sprite.lives <= 0:
-                    self.game_over()
+        if len(self.game.players) > 0:
+            player = next(iter(self.game.players))
+            if not player.is_invincible:
+                hits = pygame.sprite.spritecollide(player, self.game.enemy_bullets, True)
+                if hits:
+                    player.take_damage()
+                    self.audio.play_sound('explosion')
+                    # Create smaller explosion animation
+                    for hit in hits:
+                        self.game.effects.add(
+                            self.animation.get_animation('explosion', (24, 24)).frames[0]
+                        )
+                    
+                    if player.lives <= 0:
+                        self.game_over()
                     
     def spawn_enemies(self):
         """Handle enemy spawning"""
