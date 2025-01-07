@@ -90,12 +90,18 @@ class Player(pygame.sprite.Sprite):
             network_manager.send_player_shoot(self.rect.center)
 
 class Enemy(pygame.sprite.Sprite):
-    def __init__(self, image, enemy_type, speed, groups):
-        super().__init__(groups)
+    def __init__(self, image, enemy_type, speed, health=1, score_value=100, is_special=False, bullet_speed=4, shoot_delay=1500, groups=None):
+        super().__init__(groups or [])
         self.image = image
         self.rect = self.image.get_rect()
         self.enemy_type = enemy_type
         self.speed = speed
+        self.health = health
+        self.score_value = score_value
+        self.is_special = is_special
+        self.bullet_speed = bullet_speed
+        self.shoot_delay = shoot_delay
+        self.last_shot_time = 0
         
         # Spawn at random position at top of screen
         self.rect.x = random.randint(0, 800 - self.rect.width)
@@ -107,7 +113,11 @@ class Enemy(pygame.sprite.Sprite):
         # Special behaviors
         self.can_shoot = enemy_type == 'blue'
         self.can_reverse = enemy_type == 'red'
-        self.is_special = random.random() < 0.2  # 20% chance for special enemy
+        
+    def take_damage(self, damage):
+        """Take damage and return True if destroyed"""
+        self.health -= damage
+        return self.health <= 0
 
     def update(self):
         self.position += self.velocity
@@ -128,15 +138,25 @@ class Enemy(pygame.sprite.Sprite):
         if not self.can_shoot:
             return
             
+        current_time = pygame.time.get_ticks()
+        if current_time - self.last_shot_time < self.shoot_delay:
+            return
+            
         bullet_img = pygame.image.load('src/assets/images/b3.png').convert_alpha()
         if self.is_special:
             # Shoot three bullets in a fan pattern
-            velocities = [(-2, 5), (0, 5), (2, 5)]
+            velocities = [
+                (-self.bullet_speed/2, self.bullet_speed),
+                (0, self.bullet_speed),
+                (self.bullet_speed/2, self.bullet_speed)
+            ]
             for vel in velocities:
                 Bullet(bullet_img, self.rect.center, vel, 1, groups)
         else:
             # Shoot a single tracking bullet
-            Bullet(bullet_img, self.rect.center, (0, 5), 1, groups)
+            Bullet(bullet_img, self.rect.center, (0, self.bullet_speed), 1, groups)
+            
+        self.last_shot_time = current_time
 
 class Bullet(pygame.sprite.Sprite):
     def __init__(self, image, position, velocity, damage, groups):
