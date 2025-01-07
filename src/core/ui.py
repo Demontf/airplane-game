@@ -172,6 +172,11 @@ class Menu:
             
     def handle_event(self, event, menu_type):
         """Handle menu events and return action if button clicked"""
+        menu_type = menu_type.lower()  # Convert to lowercase
+        if menu_type not in self.buttons:
+            print(f"Warning: Unknown menu type: {menu_type}")
+            return None
+            
         for action, button in self.buttons[menu_type].items():
             if button.handle_event(event):
                 return action
