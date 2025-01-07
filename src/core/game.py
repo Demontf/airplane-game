@@ -218,7 +218,8 @@ class Game:
                 # Draw engine glow
                 glow_surf = pygame.Surface((sprite.rect.width + 10, sprite.rect.height + 10), pygame.SRCALPHA)
                 glow_surf.blit(sprite.image, (5, 5))
-                glow_surf = pygame.transform.gaussian_blur(glow_surf, 3)
+                from .effects import gaussian_blur
+                glow_surf = gaussian_blur(glow_surf, 3)
                 self.screen.blit(glow_surf, (sprite.rect.x - 5, sprite.rect.y - 5))
                 
                 # Draw shield effect if invincible

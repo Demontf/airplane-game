@@ -1,5 +1,59 @@
 import pygame
+import math
+import random
+import numpy as np
 from pygame.math import Vector2
+from pygame import Surface, SRCALPHA
+from typing import Tuple, List
+
+def gaussian_blur(surface: Surface, radius: int = 5) -> Surface:
+    """Apply gaussian blur to a surface"""
+    width, height = surface.get_size()
+    
+    # Create a larger surface to handle edge effects
+    pad = radius * 2
+    padded = pygame.Surface((width + pad * 2, height + pad * 2), SRCALPHA)
+    padded.fill((0, 0, 0, 0))
+    padded.blit(surface, (pad, pad))
+    
+    # Create kernel
+    kernel_size = radius * 2 + 1
+    kernel = np.zeros((kernel_size, kernel_size))
+    sigma = radius / 3
+    for x in range(kernel_size):
+        for y in range(kernel_size):
+            dx = x - radius
+            dy = y - radius
+            kernel[x, y] = np.exp(-(dx*dx + dy*dy)/(2*sigma*sigma))
+    kernel = kernel / kernel.sum()
+    
+    # Get pixel array
+    pixels = pygame.surfarray.pixels_alpha(padded)
+    
+    # Apply convolution
+    result = np.zeros_like(pixels)
+    for x in range(pad, width + pad):
+        for y in range(pad, height + pad):
+            value = 0
+            for kx in range(kernel_size):
+                for ky in range(kernel_size):
+                    px = x + kx - radius
+                    py = y + ky - radius
+                    value += pixels[px, py] * kernel[kx, ky]
+            result[x, y] = value
+    
+    # Create output surface
+    output = pygame.Surface((width, height), SRCALPHA)
+    output.fill((0, 0, 0, 0))
+    
+    # Copy blurred alpha values
+    for x in range(width):
+        for y in range(height):
+            color = surface.get_at((x, y))
+            alpha = int(result[x + pad, y + pad])
+            output.set_at((x, y), (color[0], color[1], color[2], alpha))
+    
+    return output
 
 class Explosion(pygame.sprite.Sprite):
     def __init__(self, position, groups):
