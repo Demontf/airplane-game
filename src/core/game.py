@@ -10,6 +10,7 @@ from .performance import PerformanceManager
 
 class Game:
     def __init__(self, config):
+        """Initialize the game with the given configuration"""
         self.config = config
         
         # Initialize display
@@ -18,6 +19,10 @@ class Game:
         self.screen = pygame.display.set_mode((self.width, self.height))
         pygame.display.set_caption(config.get('GAME', 'TITLE'))
         
+        # Initialize clock
+        self.clock = pygame.time.Clock()
+        self.fps = config.getint('GAME', 'FPS')
+
         # Initialize managers
         self.audio = AudioManager(config)
         self.animation = AnimationManager()
@@ -53,25 +58,24 @@ class Game:
         self.audio.play_music('menu')
 
     def load_assets(self):
+        """Load all game assets"""
         # Load images
         self.images = {
             'background': pygame.image.load('src/assets/images/bg.png').convert(),
             'player': pygame.image.load('src/assets/images/hero1.png').convert_alpha(),
+            'player2': pygame.image.load('src/assets/images/hero2.png').convert_alpha(),
             'enemy_red': pygame.image.load('src/assets/images/enemy01.png').convert_alpha(),
             'enemy_yellow': pygame.image.load('src/assets/images/enemy02.png').convert_alpha(),
             'enemy_blue': pygame.image.load('src/assets/images/enemy03.png').convert_alpha(),
             'bullet': pygame.image.load('src/assets/images/b2.png').convert_alpha(),
             'missile': pygame.image.load('src/assets/images/b.png').convert_alpha(),
+            'enemy_bullet': pygame.image.load('src/assets/images/b3.png').convert_alpha(),
             'explosion': pygame.image.load('src/assets/images/effer.png').convert_alpha(),
-        }
-        
-        # Load sounds
-        pygame.mixer.music.load('src/assets/sounds/bgmusic.mp3')
-        self.sounds = {
-            'explosion': pygame.mixer.Sound('src/assets/sounds/baozha.ogg'),
+            'gameover': pygame.image.load('src/assets/images/gameover.png').convert_alpha(),
         }
 
     def create_sprites(self):
+        """Create initial game sprites"""
         # Create background
         Background(self.images['background'], [self.backgrounds, self.all_sprites])
         
@@ -84,6 +88,7 @@ class Game:
         )
 
     def handle_events(self):
+        """Handle all game events"""
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 return False
@@ -132,6 +137,8 @@ class Game:
         return True
 
     def update(self):
+        """Update game state"""
+
         # Start performance monitoring
         self.performance.start_frame()
         
@@ -144,10 +151,7 @@ class Game:
             if not self.is_multiplayer or (self.is_multiplayer and self.config.getint('NETWORK', 'ROLE') == 1):
                 self.logic.spawn_enemies()
             self.logic.update_level()
-            
-            # Update particle effects
-            self.particle_emitter.update()
-            
+
             # Update animations
             for effect in self.effects:
                 if effect.animation.finished:
@@ -173,7 +177,7 @@ class Game:
         # Create remote player sprite if it's not us
         if self.player_id != data['player_id']:
             remote_player = Player(
-                self.images['hero2'],  # Use different sprite for remote player
+                self.images['player2'],  # Use different sprite for remote player
                 self.config.getint('PLAYER', 'SPEED'),
                 self.config.getint('PLAYER', 'INITIAL_LIVES'),
                 [self.remote_players, self.all_sprites]
@@ -186,7 +190,7 @@ class Game:
             if player_id not in self.remote_player_sprites:
                 # Create new remote player if we don't have it
                 remote_player = Player(
-                    self.images['hero2'],
+                    self.images['player2'],
                     self.config.getint('PLAYER', 'SPEED'),
                     self.config.getint('PLAYER', 'INITIAL_LIVES'),
                     [self.remote_players, self.all_sprites]
@@ -207,7 +211,7 @@ class Game:
     def handle_enemy_destroyed(self, enemy_id, player_id, score):
         """Handle when an enemy is destroyed by any player"""
         if player_id == self.player_id:
-            self.score += score
+            self.logic.score += score
             
     def handle_disconnect(self):
         """Handle when disconnected from server"""
@@ -225,14 +229,12 @@ class Game:
         # Update scores and lives
         for player_id, data in game_state.players.items():
             if player_id == self.player_id:
-                self.score = data['score']
+                self.logic.score = data['score']
                 if self.players.sprite:
                     self.players.sprite.lives = data['lives']
             elif player_id in self.remote_player_sprites:
                 player = self.remote_player_sprites[player_id]
                 player.lives = data['lives']
-
-
 
     def draw(self):
         """Draw everything to the screen"""
@@ -339,6 +341,7 @@ class Game:
             y += 20
 
     def run(self):
+        """Main game loop"""
         running = True
         while running:
             self.clock.tick(self.fps)
