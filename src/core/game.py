@@ -1,7 +1,7 @@
 import pygame
 import os
 import math
-from enum import Enum
+from .game_logic import GameLogic, GameState
 from .sprites import Player, Enemy, Bullet, Background
 from .network import NetworkManager
 from .ui import Menu
@@ -9,12 +9,6 @@ from .audio import AudioManager
 from .animation import AnimationManager
 from .performance import PerformanceManager
 from .effects import ParticleEmitter, Explosion
-
-class GameState(Enum):
-    START = 1
-    PLAYING = 2
-    PAUSED = 3
-    GAME_OVER = 4
 
 class Game:
     def __init__(self, config):
@@ -40,14 +34,9 @@ class Game:
         self.clock = pygame.time.Clock()
         self.fps = config.getint('GAME', 'FPS')
         
-        # Initialize game state
-        self.state = GameState.START
-        self.score = 0
-        
         # Initialize sprite groups
         self.all_sprites = pygame.sprite.Group()
         self.players = pygame.sprite.Group()
-        self.remote_players = pygame.sprite.Group()
         self.enemies = pygame.sprite.Group()
         self.bullets = pygame.sprite.Group()
         self.enemy_bullets = pygame.sprite.Group()
@@ -65,6 +54,10 @@ class Game:
         
         # Load assets
         self.load_assets()
+        
+        # Initialize game logic
+        self.logic = GameLogic(self)
+        self.state = GameState.START
         
         # Create initial sprites
         self.create_sprites()
@@ -131,7 +124,7 @@ class Game:
                 action = self.menu.handle_event(event, menu_type)
                 if action:
                     if action == 'single_player':
-                        self.state = GameState.PLAYING
+                        self.logic.reset_game()
                         self.audio.play_music('game')
                     elif action == 'multiplayer':
                         # TODO: Implement multiplayer
@@ -143,14 +136,7 @@ class Game:
                         self.state = GameState.START
                         self.audio.play_music('menu')
                     elif action == 'retry':
-                        self.state = GameState.PLAYING
-                        self.score = 0
-                        self.all_sprites.empty()
-                        self.players.empty()
-                        self.enemies.empty()
-                        self.bullets.empty()
-                        self.backgrounds.empty()
-                        self.create_sprites()
+                        self.logic.reset_game()
                         self.audio.play_music('game')
                     elif action == 'quit':
                         return False
@@ -167,7 +153,7 @@ class Game:
                 elif event.key == pygame.K_m:
                     self.audio.toggle_sound()
                 elif event.key == pygame.K_RETURN and self.state == GameState.START:
-                    self.state = GameState.PLAYING
+                    self.logic.reset_game()
                     self.audio.play_music('game')
         
         # Handle continuous shooting
@@ -185,12 +171,18 @@ class Game:
             # Update all sprites
             self.all_sprites.update()
             
-            # Handle collisions
-            self.handle_collisions()
-            
-            # Spawn enemies (only host spawns enemies in multiplayer)
+            # Update game logic
+            self.logic.handle_collisions()
             if not self.is_multiplayer or (self.is_multiplayer and self.config.getint('NETWORK', 'ROLE') == 1):
-                self.spawn_enemies()
+                self.logic.spawn_enemies()
+            self.logic.update_level()
+            
+            # Update animations
+            for effect in self.effects:
+                if effect.animation.finished:
+                    effect.kill()
+                else:
+                    effect.image = effect.animation.update(1/60)  # Assuming 60 FPS
             
             # Update network
             if self.network and self.players.sprite:
@@ -249,7 +241,7 @@ class Game:
             
         elif self.state == GameState.GAME_OVER:
             # Draw game over menu
-            self.menu.draw(self.screen, 'game_over', score=self.score)
+            self.menu.draw(self.screen, 'game_over', score=self.logic.score)
             
         # Draw performance stats if enabled
         if self.config.getboolean('GAME', 'SHOW_PERFORMANCE', fallback=True):
@@ -266,10 +258,14 @@ class Game:
         font = pygame.font.Font(None, 36)
         y = 20
         
-        # Draw score
-        score_text = font.render(f'Score: {self.score}', True, (255, 255, 255))
-        score_rect = score_text.get_rect(topleft=(20, y))
-        hud_surface.blit(score_text, score_rect)
+        # Draw score and high score
+        score_text = font.render(f'Score: {self.logic.score}', True, (255, 255, 255))
+        high_score_text = font.render(f'High Score: {self.logic.high_score}', True, (255, 255, 255))
+        level_text = font.render(f'Level: {self.logic.level}', True, (255, 255, 255))
+        
+        hud_surface.blit(score_text, (20, y))
+        hud_surface.blit(high_score_text, (20, y + 30))
+        hud_surface.blit(level_text, (20, y + 60))
         
         # Draw lives with icons
         lives_text = font.render('Lives:', True, (255, 255, 255))
@@ -284,7 +280,7 @@ class Game:
         if hasattr(self.players.sprite, 'missile_unlocked') and self.players.sprite.missile_unlocked:
             missile_text = font.render('Missiles: Ready', True, (0, 255, 0))
         else:
-            progress = self.score / self.config.getint('PLAYER', 'MISSILE_UNLOCK_SCORE')
+            progress = self.logic.score / self.config.getint('PLAYER', 'MISSILE_UNLOCK_SCORE')
             missile_text = font.render(f'Missiles: {int(progress * 100)}%', True, (255, 165, 0))
         missile_rect = missile_text.get_rect(topright=(self.width - 20, y + 30))
         hud_surface.blit(missile_text, missile_rect)
@@ -302,65 +298,6 @@ class Game:
             text = font.render(f'{key}: {value}', True, (200, 200, 200))
             self.screen.blit(text, (10, y))
             y += 20
-
-    def handle_collisions(self):
-        """Handle all game collisions"""
-        # Player bullets hitting enemies
-        hits = pygame.sprite.groupcollide(self.enemies, self.bullets, True, True)
-        for hit in hits:
-            self.score += 100
-            if 'explosion' in self.sounds:
-                self.sounds['explosion'].play()
-            # Create explosion effect
-            Explosion(hit.rect.center, [self.effects, self.all_sprites])
-            # Add particle effects
-            self.particle_emitter.emit(
-                hit.rect.center,
-                (255, 165, 0),  # Orange color
-                num_particles=20,
-                speed=8,
-                lifetime=0.5
-            )
-        
-        # Enemies hitting player
-        hits = pygame.sprite.spritecollide(self.players.sprite, self.enemies, True)
-        if hits and not self.players.sprite.is_invincible:
-            self.players.sprite.take_damage()
-            if 'explosion' in self.sounds:
-                self.sounds['explosion'].play()
-            # Create explosion effect
-            for hit in hits:
-                Explosion(hit.rect.center, [self.effects, self.all_sprites])
-                # Add particle effects
-                self.particle_emitter.emit(
-                    hit.rect.center,
-                    (255, 0, 0),  # Red color
-                    num_particles=30,
-                    speed=10,
-                    lifetime=0.8
-                )
-            if self.players.sprite.lives <= 0:
-                self.state = GameState.GAME_OVER
-
-    def spawn_enemies(self):
-        """Spawn new enemies"""
-        if len(self.enemies) < self.config.getint('ENEMY', 'MAX_ENEMIES'):
-            import random
-            
-            # Randomly choose enemy type
-            enemy_type = random.choice(['red', 'yellow', 'blue'])
-            
-            if enemy_type == 'red':
-                image = self.images['enemy_red']
-                speed = self.config.getint('ENEMY', 'RED_SPEED')
-            elif enemy_type == 'yellow':
-                image = self.images['enemy_yellow']
-                speed = self.config.getint('ENEMY', 'YELLOW_SPEED')
-            else:  # blue
-                image = self.images['enemy_blue']
-                speed = self.config.getint('ENEMY', 'BLUE_SPEED')
-            
-            Enemy(image, enemy_type, speed, [self.enemies, self.all_sprites])
 
     def handle_player_joined(self, data):
         """Handle when a new player joins the game"""
@@ -403,7 +340,7 @@ class Game:
     def handle_enemy_destroyed(self, enemy_id, player_id, score):
         """Handle when an enemy is destroyed by any player"""
         if player_id == self.player_id:
-            self.score += score
+            self.logic.score += score
             
     def handle_disconnect(self):
         """Handle when disconnected from server"""
@@ -421,7 +358,7 @@ class Game:
         # Update scores and lives
         for player_id, data in game_state.players.items():
             if player_id == self.player_id:
-                self.score = data['score']
+                self.logic.score = data['score']
                 if self.players.sprite:
                     self.players.sprite.lives = data['lives']
             elif player_id in self.remote_player_sprites:
