@@ -85,9 +85,31 @@ class Game:
                         self.state = GameState.PAUSED
                     elif self.state == GameState.PAUSED:
                         self.state = GameState.PLAYING
-                elif event.key == pygame.K_RETURN and self.state == GameState.START:
-                    self.state = GameState.PLAYING
-                    pygame.mixer.music.play(-1)
+                elif event.key == pygame.K_RETURN:
+                    if self.state == GameState.START:
+                        self.state = GameState.PLAYING
+                        pygame.mixer.music.play(-1)
+                    elif self.state == GameState.GAME_OVER:
+                        # Reset game state
+                        self.state = GameState.PLAYING
+                        self.score = 0
+                        
+                        # Clear all sprites
+                        self.all_sprites.empty()
+                        self.players.empty()
+                        self.enemies.empty()
+                        self.bullets.empty()
+                        self.backgrounds.empty()
+                        
+                        # Create initial sprites
+                        self.create_sprites()
+                        
+                        # Restart music
+                        pygame.mixer.music.play(-1)
+        
+        # Handle continuous shooting
+        if self.state == GameState.PLAYING:
+            self.players.sprite.shoot([self.bullets, self.all_sprites])
         
         return True
 
@@ -126,28 +148,71 @@ class Game:
 
     def spawn_enemies(self):
         if len(self.enemies) < self.config.getint('ENEMY', 'MAX_ENEMIES'):
-            # TODO: Implement enemy spawning logic
-            pass
+            import random
+            
+            # Randomly choose enemy type
+            enemy_type = random.choice(['red', 'yellow', 'blue'])
+            
+            if enemy_type == 'red':
+                image = self.images['enemy_red']
+                speed = self.config.getint('ENEMY', 'RED_SPEED')
+            elif enemy_type == 'yellow':
+                image = self.images['enemy_yellow']
+                speed = self.config.getint('ENEMY', 'YELLOW_SPEED')
+            else:  # blue
+                image = self.images['enemy_blue']
+                speed = self.config.getint('ENEMY', 'BLUE_SPEED')
+            
+            Enemy(image, enemy_type, speed, [self.enemies, self.all_sprites])
 
     def draw(self):
         self.screen.fill((0, 0, 0))
         
         if self.state == GameState.START:
             # Draw start screen
-            pass
+            self.screen.blit(self.images['background'], (0, 0))
+            start_text = pygame.font.Font(None, 64).render('Press ENTER to Start', True, (255, 255, 255))
+            text_rect = start_text.get_rect(center=(self.width // 2, self.height // 2))
+            self.screen.blit(start_text, text_rect)
+        
         elif self.state == GameState.PLAYING or self.state == GameState.PAUSED:
-            # Draw all sprites
-            self.all_sprites.draw(self.screen)
+            # Draw backgrounds
+            for bg in self.backgrounds:
+                bg.draw(self.screen)
+            
+            # Draw all other sprites
+            for sprite in self.all_sprites:
+                if sprite not in self.backgrounds:
+                    self.screen.blit(sprite.image, sprite.rect)
             
             # Draw HUD
             self.draw_hud()
             
             if self.state == GameState.PAUSED:
-                # Draw pause overlay
-                pass
+                # Create semi-transparent overlay
+                overlay = pygame.Surface((self.width, self.height))
+                overlay.fill((0, 0, 0))
+                overlay.set_alpha(128)
+                self.screen.blit(overlay, (0, 0))
+                
+                # Draw pause text
+                pause_text = pygame.font.Font(None, 64).render('PAUSED', True, (255, 255, 255))
+                text_rect = pause_text.get_rect(center=(self.width // 2, self.height // 2))
+                self.screen.blit(pause_text, text_rect)
+        
         elif self.state == GameState.GAME_OVER:
             # Draw game over screen
-            pass
+            self.screen.blit(self.images['gameover'], (0, 0))
+            
+            # Draw final score
+            score_text = pygame.font.Font(None, 48).render(f'Final Score: {self.score}', True, (255, 255, 255))
+            text_rect = score_text.get_rect(center=(self.width // 2, self.height // 2 + 50))
+            self.screen.blit(score_text, text_rect)
+            
+            # Draw restart instruction
+            restart_text = pygame.font.Font(None, 36).render('Press ENTER to Play Again', True, (255, 255, 255))
+            text_rect = restart_text.get_rect(center=(self.width // 2, self.height // 2 + 100))
+            self.screen.blit(restart_text, text_rect)
         
         pygame.display.flip()
 
