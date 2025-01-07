@@ -69,7 +69,7 @@ class Player(pygame.sprite.Sprite):
             self.is_invincible = True
             self.invincible_timer = pygame.time.get_ticks()
 
-    def shoot(self, groups):
+    def shoot(self, groups, network_manager=None):
         # Create regular bullet
         bullet_img = pygame.image.load('src/assets/images/b2.png').convert_alpha()
         Bullet(bullet_img, self.rect.center, (0, -10), 1, groups)
@@ -84,6 +84,10 @@ class Player(pygame.sprite.Sprite):
                 # Right missile
                 Bullet(missile_img, (self.rect.right, self.rect.centery), (2, -8), 2, groups)
                 self.last_missile_time = current_time
+        
+        # Notify other players about shooting
+        if network_manager:
+            network_manager.send_player_shoot(self.rect.center)
 
 class Enemy(pygame.sprite.Sprite):
     def __init__(self, image, enemy_type, speed, groups):

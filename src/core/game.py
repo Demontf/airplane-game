@@ -30,12 +30,16 @@ class Game:
         # Initialize sprite groups
         self.all_sprites = pygame.sprite.Group()
         self.players = pygame.sprite.Group()
+        self.remote_players = pygame.sprite.Group()
         self.enemies = pygame.sprite.Group()
         self.bullets = pygame.sprite.Group()
         self.backgrounds = pygame.sprite.Group()
         
-        # Initialize network if multiplayer
-        self.network = NetworkManager(config) if config.getint('NETWORK', 'ROLE') in [1, 2] else None
+        # Initialize multiplayer
+        self.is_multiplayer = config.getint('NETWORK', 'ROLE') in [1, 2]
+        self.network = NetworkManager(config, self) if self.is_multiplayer else None
+        self.player_id = None
+        self.remote_player_sprites = {}  # {player_id: sprite}
         
         # Load assets
         self.load_assets()
@@ -123,12 +127,83 @@ class Game:
         # Handle collisions
         self.handle_collisions()
         
-        # Spawn enemies
-        self.spawn_enemies()
+        # Spawn enemies (only host spawns enemies in multiplayer)
+        if not self.is_multiplayer or (self.is_multiplayer and self.config.getint('NETWORK', 'ROLE') == 1):
+            self.spawn_enemies()
         
-        # Update network
-        if self.network:
+        # Update network and sync player position
+        if self.network and self.players.sprite:
+            self.network.send_player_update(
+                self.players.sprite.position,
+                self.players.sprite.velocity
+            )
             self.network.update()
+            
+    def handle_player_joined(self, data):
+        """Handle when a new player joins the game"""
+        self.player_id = data['player_id']
+        
+        # Create remote player sprite if it's not us
+        if self.player_id != data['player_id']:
+            remote_player = Player(
+                self.images['hero2'],  # Use different sprite for remote player
+                self.config.getint('PLAYER', 'SPEED'),
+                self.config.getint('PLAYER', 'INITIAL_LIVES'),
+                [self.remote_players, self.all_sprites]
+            )
+            self.remote_player_sprites[data['player_id']] = remote_player
+            
+    def update_remote_player(self, player_id, position, velocity):
+        """Update remote player position and velocity"""
+        if player_id != self.player_id:
+            if player_id not in self.remote_player_sprites:
+                # Create new remote player if we don't have it
+                remote_player = Player(
+                    self.images['hero2'],
+                    self.config.getint('PLAYER', 'SPEED'),
+                    self.config.getint('PLAYER', 'INITIAL_LIVES'),
+                    [self.remote_players, self.all_sprites]
+                )
+                self.remote_player_sprites[player_id] = remote_player
+            
+            # Update position and velocity
+            player = self.remote_player_sprites[player_id]
+            player.position = position
+            player.velocity = velocity
+            player.rect.center = position
+            
+    def handle_remote_shoot(self, player_id, position):
+        """Handle when a remote player shoots"""
+        if player_id != self.player_id and player_id in self.remote_player_sprites:
+            self.remote_player_sprites[player_id].shoot([self.bullets, self.all_sprites])
+            
+    def handle_enemy_destroyed(self, enemy_id, player_id, score):
+        """Handle when an enemy is destroyed by any player"""
+        if player_id == self.player_id:
+            self.score += score
+            
+    def handle_disconnect(self):
+        """Handle when disconnected from server"""
+        if self.state == GameState.PLAYING:
+            self.state = GameState.PAUSED
+            
+    def handle_connection_error(self, error):
+        """Handle connection error"""
+        print(f"Connection error: {error}")
+        if self.state == GameState.PLAYING:
+            self.state = GameState.PAUSED
+            
+    def sync_game_state(self, game_state):
+        """Sync game state from server"""
+        # Update scores and lives
+        for player_id, data in game_state.players.items():
+            if player_id == self.player_id:
+                self.score = data['score']
+                if self.players.sprite:
+                    self.players.sprite.lives = data['lives']
+            elif player_id in self.remote_player_sprites:
+                player = self.remote_player_sprites[player_id]
+                player.lives = data['lives']
 
     def handle_collisions(self):
         # Player bullets hitting enemies
