@@ -1,7 +1,14 @@
 import pygame
+import os
+import math
 from enum import Enum
 from .sprites import Player, Enemy, Bullet, Background
 from .network import NetworkManager
+from .ui import Menu
+from .audio import AudioManager
+from .animation import AnimationManager
+from .performance import PerformanceManager
+from .effects import ParticleEmitter, Explosion
 
 class GameState(Enum):
     START = 1
@@ -11,13 +18,23 @@ class GameState(Enum):
 
 class Game:
     def __init__(self, config):
+        """Initialize the game with the given configuration"""
         self.config = config
         
         # Initialize display
         self.width = config.getint('GAME', 'SCREEN_WIDTH')
         self.height = config.getint('GAME', 'SCREEN_HEIGHT')
-        self.screen = pygame.display.set_mode((self.width, self.height))
+        display_flags = pygame.HWSURFACE | pygame.DOUBLEBUF
+        if config.getboolean('GAME', 'ENABLE_VSYNC', fallback=True):
+            display_flags |= pygame.SCALED
+        self.screen = pygame.display.set_mode((self.width, self.height), display_flags)
         pygame.display.set_caption(config.get('GAME', 'TITLE'))
+        
+        # Initialize managers
+        self.audio = AudioManager(config)
+        self.animation = AnimationManager()
+        self.performance = PerformanceManager(config)
+        self.menu = Menu(self.width, self.height)
         
         # Initialize clock
         self.clock = pygame.time.Clock()
@@ -33,8 +50,9 @@ class Game:
         self.remote_players = pygame.sprite.Group()
         self.enemies = pygame.sprite.Group()
         self.bullets = pygame.sprite.Group()
-        self.backgrounds = pygame.sprite.Group()
+        self.enemy_bullets = pygame.sprite.Group()
         self.effects = pygame.sprite.Group()
+        self.backgrounds = pygame.sprite.Group()
         
         # Initialize effects
         self.particle_emitter = ParticleEmitter()
@@ -50,27 +68,46 @@ class Game:
         
         # Create initial sprites
         self.create_sprites()
+        
+        # Start menu music
+        self.audio.play_music('menu')
 
     def load_assets(self):
+        """Load all game assets"""
         # Load images
         self.images = {
             'background': pygame.image.load('src/assets/images/bg.png').convert(),
             'player': pygame.image.load('src/assets/images/hero1.png').convert_alpha(),
+            'player2': pygame.image.load('src/assets/images/hero2.png').convert_alpha(),
             'enemy_red': pygame.image.load('src/assets/images/enemy01.png').convert_alpha(),
             'enemy_yellow': pygame.image.load('src/assets/images/enemy02.png').convert_alpha(),
             'enemy_blue': pygame.image.load('src/assets/images/enemy03.png').convert_alpha(),
             'bullet': pygame.image.load('src/assets/images/b2.png').convert_alpha(),
             'missile': pygame.image.load('src/assets/images/b.png').convert_alpha(),
+            'enemy_bullet': pygame.image.load('src/assets/images/b3.png').convert_alpha(),
             'explosion': pygame.image.load('src/assets/images/effer.png').convert_alpha(),
+            'gameover': pygame.image.load('src/assets/images/gameover.png').convert_alpha(),
         }
         
         # Load sounds
-        pygame.mixer.music.load('src/assets/sounds/bgmusic.mp3')
-        self.sounds = {
-            'explosion': pygame.mixer.Sound('src/assets/sounds/baozha.ogg'),
-        }
+        try:
+            if os.path.exists('src/assets/sounds/bgmusic.mp3'):
+                pygame.mixer.music.load('src/assets/sounds/bgmusic.mp3')
+            else:
+                print("Warning: Background music file not found")
+        except pygame.error as e:
+            print(f"Warning: Could not load background music: {e}")
+            
+        try:
+            self.sounds = {
+                'explosion': pygame.mixer.Sound('src/assets/sounds/baozha.ogg'),
+            }
+        except pygame.error as e:
+            print(f"Warning: Could not load sound effects: {e}")
+            self.sounds = {}
 
     def create_sprites(self):
+        """Create initial game sprites"""
         # Create background
         Background(self.images['background'], [self.backgrounds, self.all_sprites])
         
@@ -83,66 +120,248 @@ class Game:
         )
 
     def handle_events(self):
+        """Handle all game events"""
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 return False
             
-            if event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_SPACE:
-                    if self.state == GameState.PLAYING:
-                        self.state = GameState.PAUSED
-                    elif self.state == GameState.PAUSED:
+            # Handle menu events
+            if self.state in [GameState.START, GameState.PAUSED, GameState.GAME_OVER]:
+                menu_type = 'main' if self.state == GameState.START else self.state.name.lower()
+                action = self.menu.handle_event(event, menu_type)
+                if action:
+                    if action == 'single_player':
                         self.state = GameState.PLAYING
-                elif event.key == pygame.K_RETURN:
-                    if self.state == GameState.START:
+                        self.audio.play_music('game')
+                    elif action == 'multiplayer':
+                        # TODO: Implement multiplayer
+                        pass
+                    elif action == 'resume':
                         self.state = GameState.PLAYING
-                        pygame.mixer.music.play(-1)
-                    elif self.state == GameState.GAME_OVER:
-                        # Reset game state
+                        self.audio.unpause_music()
+                    elif action == 'main_menu':
+                        self.state = GameState.START
+                        self.audio.play_music('menu')
+                    elif action == 'retry':
                         self.state = GameState.PLAYING
                         self.score = 0
-                        
-                        # Clear all sprites
                         self.all_sprites.empty()
                         self.players.empty()
                         self.enemies.empty()
                         self.bullets.empty()
                         self.backgrounds.empty()
-                        
-                        # Create initial sprites
                         self.create_sprites()
-                        
-                        # Restart music
-                        pygame.mixer.music.play(-1)
+                        self.audio.play_music('game')
+                    elif action == 'quit':
+                        return False
+            
+            # Handle game controls
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_ESCAPE:
+                    if self.state == GameState.PLAYING:
+                        self.state = GameState.PAUSED
+                        self.audio.pause_music()
+                    elif self.state == GameState.PAUSED:
+                        self.state = GameState.PLAYING
+                        self.audio.unpause_music()
+                elif event.key == pygame.K_m:
+                    self.audio.toggle_sound()
+                elif event.key == pygame.K_RETURN and self.state == GameState.START:
+                    self.state = GameState.PLAYING
+                    self.audio.play_music('game')
         
         # Handle continuous shooting
-        if self.state == GameState.PLAYING:
-            self.players.sprite.shoot([self.bullets, self.all_sprites])
+        if self.state == GameState.PLAYING and self.players.sprite:
+            self.players.sprite.shoot([self.bullets, self.all_sprites], self.network)
         
         return True
 
     def update(self):
-        if self.state != GameState.PLAYING:
-            return
+        """Update game state"""
+        # Start performance monitoring
+        self.performance.start_frame()
         
-        # Update all sprites
-        self.all_sprites.update()
-        
-        # Handle collisions
-        self.handle_collisions()
-        
-        # Spawn enemies (only host spawns enemies in multiplayer)
-        if not self.is_multiplayer or (self.is_multiplayer and self.config.getint('NETWORK', 'ROLE') == 1):
-            self.spawn_enemies()
-        
-        # Update network and sync player position
-        if self.network and self.players.sprite:
-            self.network.send_player_update(
-                self.players.sprite.position,
-                self.players.sprite.velocity
-            )
-            self.network.update()
+        if self.state == GameState.PLAYING:
+            # Update all sprites
+            self.all_sprites.update()
             
+            # Handle collisions
+            self.handle_collisions()
+            
+            # Spawn enemies (only host spawns enemies in multiplayer)
+            if not self.is_multiplayer or (self.is_multiplayer and self.config.getint('NETWORK', 'ROLE') == 1):
+                self.spawn_enemies()
+            
+            # Update network
+            if self.network and self.players.sprite:
+                self.network.send_player_update(
+                    self.players.sprite.position,
+                    self.players.sprite.velocity
+                )
+                self.network.update()
+        
+        # End performance monitoring
+        self.performance.end_frame()
+
+    def draw(self):
+        """Draw everything to the screen"""
+        self.screen.fill((0, 0, 0))
+        
+        # Draw game state
+        if self.state == GameState.START:
+            # Draw background
+            self.backgrounds.draw(self.screen)
+            # Draw menu
+            self.menu.draw(self.screen, 'main')
+            
+        elif self.state == GameState.PLAYING:
+            # Draw game world
+            self.backgrounds.draw(self.screen)
+            self.all_sprites.draw(self.screen)
+            self.effects.draw(self.screen)
+            
+            # Draw player effects
+            for sprite in self.players:
+                # Draw engine glow
+                glow_surf = pygame.Surface((sprite.rect.width + 10, sprite.rect.height + 10), pygame.SRCALPHA)
+                glow_surf.blit(sprite.image, (5, 5))
+                glow_surf = pygame.transform.gaussian_blur(glow_surf, 3)
+                self.screen.blit(glow_surf, (sprite.rect.x - 5, sprite.rect.y - 5))
+                
+                # Draw shield effect if invincible
+                if sprite.is_invincible:
+                    shield_anim = self.animation.get_animation('shield', (64, 64))
+                    shield_frame = shield_anim.update(1/60)
+                    shield_rect = shield_frame.get_rect(center=sprite.rect.center)
+                    self.screen.blit(shield_frame, shield_rect)
+            
+            # Draw HUD
+            self.draw_hud()
+            
+        elif self.state == GameState.PAUSED:
+            # Draw game world (dimmed)
+            self.backgrounds.draw(self.screen)
+            self.all_sprites.draw(self.screen)
+            self.effects.draw(self.screen)
+            
+            # Draw pause menu
+            self.menu.draw(self.screen, 'pause')
+            
+        elif self.state == GameState.GAME_OVER:
+            # Draw game over menu
+            self.menu.draw(self.screen, 'game_over', score=self.score)
+            
+        # Draw performance stats if enabled
+        if self.config.getboolean('GAME', 'SHOW_PERFORMANCE', fallback=True):
+            self.draw_performance_stats()
+            
+        pygame.display.flip()
+
+    def draw_hud(self):
+        """Draw heads-up display"""
+        # Create HUD surface with transparency
+        hud_surface = pygame.Surface((self.width, 100), pygame.SRCALPHA)
+        pygame.draw.rect(hud_surface, (0, 0, 0, 128), (0, 0, self.width, 100))
+        
+        font = pygame.font.Font(None, 36)
+        y = 20
+        
+        # Draw score
+        score_text = font.render(f'Score: {self.score}', True, (255, 255, 255))
+        score_rect = score_text.get_rect(topleft=(20, y))
+        hud_surface.blit(score_text, score_rect)
+        
+        # Draw lives with icons
+        lives_text = font.render('Lives:', True, (255, 255, 255))
+        lives_rect = lives_text.get_rect(topright=(self.width - 180, y))
+        hud_surface.blit(lives_text, lives_rect)
+        
+        life_icon = pygame.transform.scale(self.images['player'], (20, 20))
+        for i in range(self.players.sprite.lives):
+            hud_surface.blit(life_icon, (self.width - 160 + i * 30, y))
+        
+        # Draw missile status
+        if hasattr(self.players.sprite, 'missile_unlocked') and self.players.sprite.missile_unlocked:
+            missile_text = font.render('Missiles: Ready', True, (0, 255, 0))
+        else:
+            progress = self.score / self.config.getint('PLAYER', 'MISSILE_UNLOCK_SCORE')
+            missile_text = font.render(f'Missiles: {int(progress * 100)}%', True, (255, 165, 0))
+        missile_rect = missile_text.get_rect(topright=(self.width - 20, y + 30))
+        hud_surface.blit(missile_text, missile_rect)
+        
+        # Draw the HUD surface
+        self.screen.blit(hud_surface, (0, 0))
+        
+    def draw_performance_stats(self):
+        """Draw performance statistics"""
+        stats = self.performance.get_stats()
+        font = pygame.font.Font(None, 24)
+        y = self.height - 100
+        
+        for key, value in stats.items():
+            text = font.render(f'{key}: {value}', True, (200, 200, 200))
+            self.screen.blit(text, (10, y))
+            y += 20
+
+    def handle_collisions(self):
+        """Handle all game collisions"""
+        # Player bullets hitting enemies
+        hits = pygame.sprite.groupcollide(self.enemies, self.bullets, True, True)
+        for hit in hits:
+            self.score += 100
+            if 'explosion' in self.sounds:
+                self.sounds['explosion'].play()
+            # Create explosion effect
+            Explosion(hit.rect.center, [self.effects, self.all_sprites])
+            # Add particle effects
+            self.particle_emitter.emit(
+                hit.rect.center,
+                (255, 165, 0),  # Orange color
+                num_particles=20,
+                speed=8,
+                lifetime=0.5
+            )
+        
+        # Enemies hitting player
+        hits = pygame.sprite.spritecollide(self.players.sprite, self.enemies, True)
+        if hits and not self.players.sprite.is_invincible:
+            self.players.sprite.take_damage()
+            if 'explosion' in self.sounds:
+                self.sounds['explosion'].play()
+            # Create explosion effect
+            for hit in hits:
+                Explosion(hit.rect.center, [self.effects, self.all_sprites])
+                # Add particle effects
+                self.particle_emitter.emit(
+                    hit.rect.center,
+                    (255, 0, 0),  # Red color
+                    num_particles=30,
+                    speed=10,
+                    lifetime=0.8
+                )
+            if self.players.sprite.lives <= 0:
+                self.state = GameState.GAME_OVER
+
+    def spawn_enemies(self):
+        """Spawn new enemies"""
+        if len(self.enemies) < self.config.getint('ENEMY', 'MAX_ENEMIES'):
+            import random
+            
+            # Randomly choose enemy type
+            enemy_type = random.choice(['red', 'yellow', 'blue'])
+            
+            if enemy_type == 'red':
+                image = self.images['enemy_red']
+                speed = self.config.getint('ENEMY', 'RED_SPEED')
+            elif enemy_type == 'yellow':
+                image = self.images['enemy_yellow']
+                speed = self.config.getint('ENEMY', 'YELLOW_SPEED')
+            else:  # blue
+                image = self.images['enemy_blue']
+                speed = self.config.getint('ENEMY', 'BLUE_SPEED')
+            
+            Enemy(image, enemy_type, speed, [self.enemies, self.all_sprites])
+
     def handle_player_joined(self, data):
         """Handle when a new player joins the game"""
         self.player_id = data['player_id']
@@ -150,7 +369,7 @@ class Game:
         # Create remote player sprite if it's not us
         if self.player_id != data['player_id']:
             remote_player = Player(
-                self.images['hero2'],  # Use different sprite for remote player
+                self.images['player2'],  # Use different sprite for remote player
                 self.config.getint('PLAYER', 'SPEED'),
                 self.config.getint('PLAYER', 'INITIAL_LIVES'),
                 [self.remote_players, self.all_sprites]
@@ -163,7 +382,7 @@ class Game:
             if player_id not in self.remote_player_sprites:
                 # Create new remote player if we don't have it
                 remote_player = Player(
-                    self.images['hero2'],
+                    self.images['player2'],
                     self.config.getint('PLAYER', 'SPEED'),
                     self.config.getint('PLAYER', 'INITIAL_LIVES'),
                     [self.remote_players, self.all_sprites]
@@ -209,184 +428,8 @@ class Game:
                 player = self.remote_player_sprites[player_id]
                 player.lives = data['lives']
 
-    def handle_collisions(self):
-        # Player bullets hitting enemies
-        hits = pygame.sprite.groupcollide(self.enemies, self.bullets, True, True)
-        for hit in hits:
-            self.score += 100
-            self.sounds['explosion'].play()
-            # Create explosion effect
-            Explosion(hit.rect.center, [self.effects, self.all_sprites])
-            # Add particle effects
-            self.particle_emitter.emit(
-                hit.rect.center,
-                (255, 165, 0),  # Orange color
-                num_particles=20,
-                speed=8,
-                lifetime=0.5
-            )
-        
-        # Enemies hitting player
-        hits = pygame.sprite.spritecollide(self.players.sprite, self.enemies, True)
-        if hits and not self.players.sprite.is_invincible:
-            self.players.sprite.take_damage()
-            self.sounds['explosion'].play()
-            # Create explosion effect
-            for hit in hits:
-                Explosion(hit.rect.center, [self.effects, self.all_sprites])
-                # Add particle effects
-                self.particle_emitter.emit(
-                    hit.rect.center,
-                    (255, 0, 0),  # Red color
-                    num_particles=30,
-                    speed=10,
-                    lifetime=0.8
-                )
-            if self.players.sprite.lives <= 0:
-                self.state = GameState.GAME_OVER
-
-    def spawn_enemies(self):
-        if len(self.enemies) < self.config.getint('ENEMY', 'MAX_ENEMIES'):
-            import random
-            
-            # Randomly choose enemy type
-            enemy_type = random.choice(['red', 'yellow', 'blue'])
-            
-            if enemy_type == 'red':
-                image = self.images['enemy_red']
-                speed = self.config.getint('ENEMY', 'RED_SPEED')
-            elif enemy_type == 'yellow':
-                image = self.images['enemy_yellow']
-                speed = self.config.getint('ENEMY', 'YELLOW_SPEED')
-            else:  # blue
-                image = self.images['enemy_blue']
-                speed = self.config.getint('ENEMY', 'BLUE_SPEED')
-            
-            Enemy(image, enemy_type, speed, [self.enemies, self.all_sprites])
-
-    def draw(self):
-        self.screen.fill((0, 0, 0))
-        
-        if self.state == GameState.START:
-            # Draw start screen with parallax stars
-            self.screen.blit(self.images['background'], (0, 0))
-            start_text = pygame.font.Font(None, 64).render('Press ENTER to Start', True, (255, 255, 255))
-            text_rect = start_text.get_rect(center=(self.width // 2, self.height // 2))
-            # Add glow effect to text
-            glow_surf = pygame.Surface((text_rect.width + 20, text_rect.height + 20), pygame.SRCALPHA)
-            glow_text = pygame.font.Font(None, 64).render('Press ENTER to Start', True, (255, 255, 255, 128))
-            glow_rect = glow_text.get_rect(center=(glow_surf.get_width()//2, glow_surf.get_height()//2))
-            glow_surf.blit(glow_text, glow_rect)
-            glow_surf = pygame.transform.gaussian_blur(glow_surf, 5)
-            self.screen.blit(glow_surf, (text_rect.x - 10, text_rect.y - 10))
-            self.screen.blit(start_text, text_rect)
-        
-        elif self.state == GameState.PLAYING or self.state == GameState.PAUSED:
-            # Draw backgrounds with parallax effect
-            for bg in self.backgrounds:
-                bg.draw(self.screen)
-            
-            # Draw particles
-            self.particle_emitter.draw(self.screen)
-            
-            # Draw all other sprites
-            for sprite in self.all_sprites:
-                if sprite not in self.backgrounds:
-                    # Add engine glow for players
-                    if sprite in self.players or sprite in self.remote_players:
-                        glow_surf = pygame.Surface((sprite.rect.width + 10, sprite.rect.height + 10), pygame.SRCALPHA)
-                        glow_surf.blit(sprite.image, (5, 5))
-                        glow_surf = pygame.transform.gaussian_blur(glow_surf, 3)
-                        self.screen.blit(glow_surf, (sprite.rect.x - 5, sprite.rect.y - 5))
-                    # Draw the sprite
-                    self.screen.blit(sprite.image, sprite.rect)
-            
-            # Draw HUD
-            self.draw_hud()
-            
-            if self.state == GameState.PAUSED:
-                # Create semi-transparent overlay
-                overlay = pygame.Surface((self.width, self.height))
-                overlay.fill((0, 0, 0))
-                overlay.set_alpha(128)
-                self.screen.blit(overlay, (0, 0))
-                
-                # Draw pause text with glow
-                pause_text = pygame.font.Font(None, 64).render('PAUSED', True, (255, 255, 255))
-                text_rect = pause_text.get_rect(center=(self.width // 2, self.height // 2))
-                glow_surf = pygame.Surface((text_rect.width + 20, text_rect.height + 20), pygame.SRCALPHA)
-                glow_text = pygame.font.Font(None, 64).render('PAUSED', True, (255, 255, 255, 128))
-                glow_rect = glow_text.get_rect(center=(glow_surf.get_width()//2, glow_surf.get_height()//2))
-                glow_surf.blit(glow_text, glow_rect)
-                glow_surf = pygame.transform.gaussian_blur(glow_surf, 5)
-                self.screen.blit(glow_surf, (text_rect.x - 10, text_rect.y - 10))
-                self.screen.blit(pause_text, text_rect)
-        
-        elif self.state == GameState.GAME_OVER:
-            # Draw game over screen with effects
-            self.screen.blit(self.images['gameover'], (0, 0))
-            
-            # Draw final score with glow
-            score_text = pygame.font.Font(None, 48).render(f'Final Score: {self.score}', True, (255, 255, 255))
-            text_rect = score_text.get_rect(center=(self.width // 2, self.height // 2 + 50))
-            glow_surf = pygame.Surface((text_rect.width + 20, text_rect.height + 20), pygame.SRCALPHA)
-            glow_text = pygame.font.Font(None, 48).render(f'Final Score: {self.score}', True, (255, 255, 255, 128))
-            glow_rect = glow_text.get_rect(center=(glow_surf.get_width()//2, glow_surf.get_height()//2))
-            glow_surf.blit(glow_text, glow_rect)
-            glow_surf = pygame.transform.gaussian_blur(glow_surf, 5)
-            self.screen.blit(glow_surf, (text_rect.x - 10, text_rect.y - 10))
-            self.screen.blit(score_text, text_rect)
-            
-            # Draw restart instruction with pulsing effect
-            alpha = int(128 + 127 * math.sin(pygame.time.get_ticks() * 0.005))
-            restart_text = pygame.font.Font(None, 36).render('Press ENTER to Play Again', True, (255, 255, 255))
-            text_rect = restart_text.get_rect(center=(self.width // 2, self.height // 2 + 100))
-            restart_text.set_alpha(alpha)
-            self.screen.blit(restart_text, text_rect)
-        
-        pygame.display.flip()
-
-    def draw_hud(self):
-        # Create HUD surface with transparency
-        hud_surface = pygame.Surface((self.width, 80), pygame.SRCALPHA)
-        pygame.draw.rect(hud_surface, (0, 0, 0, 128), (0, 0, self.width, 80))
-        
-        # Draw score with glow
-        font = pygame.font.Font(None, 36)
-        score_text = font.render(f'Score: {self.score}', True, (255, 255, 255))
-        score_rect = score_text.get_rect(topleft=(20, 20))
-        
-        # Add glow to score
-        glow_surf = pygame.Surface((score_rect.width + 10, score_rect.height + 10), pygame.SRCALPHA)
-        glow_text = font.render(f'Score: {self.score}', True, (255, 255, 255, 128))
-        glow_rect = glow_text.get_rect(center=(glow_surf.get_width()//2, glow_surf.get_height()//2))
-        glow_surf.blit(glow_text, glow_rect)
-        glow_surf = pygame.transform.gaussian_blur(glow_surf, 3)
-        hud_surface.blit(glow_surf, (15, 15))
-        hud_surface.blit(score_text, (20, 20))
-        
-        # Draw lives
-        lives_text = font.render('Lives:', True, (255, 255, 255))
-        lives_rect = lives_text.get_rect(topleft=(200, 20))
-        hud_surface.blit(lives_text, lives_rect)
-        
-        # Draw life icons
-        life_icon = pygame.transform.scale(self.images['hero1'], (20, 20))
-        for i in range(self.players.sprite.lives):
-            hud_surface.blit(life_icon, (280 + i * 30, 20))
-        
-        # Draw missile status if unlocked
-        if self.players.sprite.missile_unlocked:
-            missile_text = font.render('Missiles: Ready', True, (0, 255, 0))
-        else:
-            missile_text = font.render(f'Missiles: {self.score}/1000', True, (255, 165, 0))
-        missile_rect = missile_text.get_rect(topleft=(400, 20))
-        hud_surface.blit(missile_text, missile_rect)
-        
-        # Draw the HUD surface
-        self.screen.blit(hud_surface, (0, 0))
-
     def run(self):
+        """Main game loop"""
         running = True
         while running:
             self.clock.tick(self.fps)
