@@ -34,6 +34,10 @@ class Game:
         self.enemies = pygame.sprite.Group()
         self.bullets = pygame.sprite.Group()
         self.backgrounds = pygame.sprite.Group()
+        self.effects = pygame.sprite.Group()
+        
+        # Initialize effects
+        self.particle_emitter = ParticleEmitter()
         
         # Initialize multiplayer
         self.is_multiplayer = config.getint('NETWORK', 'ROLE') in [1, 2]
@@ -211,13 +215,33 @@ class Game:
         for hit in hits:
             self.score += 100
             self.sounds['explosion'].play()
-            # TODO: Add explosion animation
+            # Create explosion effect
+            Explosion(hit.rect.center, [self.effects, self.all_sprites])
+            # Add particle effects
+            self.particle_emitter.emit(
+                hit.rect.center,
+                (255, 165, 0),  # Orange color
+                num_particles=20,
+                speed=8,
+                lifetime=0.5
+            )
         
         # Enemies hitting player
         hits = pygame.sprite.spritecollide(self.players.sprite, self.enemies, True)
         if hits and not self.players.sprite.is_invincible:
             self.players.sprite.take_damage()
             self.sounds['explosion'].play()
+            # Create explosion effect
+            for hit in hits:
+                Explosion(hit.rect.center, [self.effects, self.all_sprites])
+                # Add particle effects
+                self.particle_emitter.emit(
+                    hit.rect.center,
+                    (255, 0, 0),  # Red color
+                    num_particles=30,
+                    speed=10,
+                    lifetime=0.8
+                )
             if self.players.sprite.lives <= 0:
                 self.state = GameState.GAME_OVER
 
@@ -244,20 +268,37 @@ class Game:
         self.screen.fill((0, 0, 0))
         
         if self.state == GameState.START:
-            # Draw start screen
+            # Draw start screen with parallax stars
             self.screen.blit(self.images['background'], (0, 0))
             start_text = pygame.font.Font(None, 64).render('Press ENTER to Start', True, (255, 255, 255))
             text_rect = start_text.get_rect(center=(self.width // 2, self.height // 2))
+            # Add glow effect to text
+            glow_surf = pygame.Surface((text_rect.width + 20, text_rect.height + 20), pygame.SRCALPHA)
+            glow_text = pygame.font.Font(None, 64).render('Press ENTER to Start', True, (255, 255, 255, 128))
+            glow_rect = glow_text.get_rect(center=(glow_surf.get_width()//2, glow_surf.get_height()//2))
+            glow_surf.blit(glow_text, glow_rect)
+            glow_surf = pygame.transform.gaussian_blur(glow_surf, 5)
+            self.screen.blit(glow_surf, (text_rect.x - 10, text_rect.y - 10))
             self.screen.blit(start_text, text_rect)
         
         elif self.state == GameState.PLAYING or self.state == GameState.PAUSED:
-            # Draw backgrounds
+            # Draw backgrounds with parallax effect
             for bg in self.backgrounds:
                 bg.draw(self.screen)
+            
+            # Draw particles
+            self.particle_emitter.draw(self.screen)
             
             # Draw all other sprites
             for sprite in self.all_sprites:
                 if sprite not in self.backgrounds:
+                    # Add engine glow for players
+                    if sprite in self.players or sprite in self.remote_players:
+                        glow_surf = pygame.Surface((sprite.rect.width + 10, sprite.rect.height + 10), pygame.SRCALPHA)
+                        glow_surf.blit(sprite.image, (5, 5))
+                        glow_surf = pygame.transform.gaussian_blur(glow_surf, 3)
+                        self.screen.blit(glow_surf, (sprite.rect.x - 5, sprite.rect.y - 5))
+                    # Draw the sprite
                     self.screen.blit(sprite.image, sprite.rect)
             
             # Draw HUD
@@ -270,36 +311,80 @@ class Game:
                 overlay.set_alpha(128)
                 self.screen.blit(overlay, (0, 0))
                 
-                # Draw pause text
+                # Draw pause text with glow
                 pause_text = pygame.font.Font(None, 64).render('PAUSED', True, (255, 255, 255))
                 text_rect = pause_text.get_rect(center=(self.width // 2, self.height // 2))
+                glow_surf = pygame.Surface((text_rect.width + 20, text_rect.height + 20), pygame.SRCALPHA)
+                glow_text = pygame.font.Font(None, 64).render('PAUSED', True, (255, 255, 255, 128))
+                glow_rect = glow_text.get_rect(center=(glow_surf.get_width()//2, glow_surf.get_height()//2))
+                glow_surf.blit(glow_text, glow_rect)
+                glow_surf = pygame.transform.gaussian_blur(glow_surf, 5)
+                self.screen.blit(glow_surf, (text_rect.x - 10, text_rect.y - 10))
                 self.screen.blit(pause_text, text_rect)
         
         elif self.state == GameState.GAME_OVER:
-            # Draw game over screen
+            # Draw game over screen with effects
             self.screen.blit(self.images['gameover'], (0, 0))
             
-            # Draw final score
+            # Draw final score with glow
             score_text = pygame.font.Font(None, 48).render(f'Final Score: {self.score}', True, (255, 255, 255))
             text_rect = score_text.get_rect(center=(self.width // 2, self.height // 2 + 50))
+            glow_surf = pygame.Surface((text_rect.width + 20, text_rect.height + 20), pygame.SRCALPHA)
+            glow_text = pygame.font.Font(None, 48).render(f'Final Score: {self.score}', True, (255, 255, 255, 128))
+            glow_rect = glow_text.get_rect(center=(glow_surf.get_width()//2, glow_surf.get_height()//2))
+            glow_surf.blit(glow_text, glow_rect)
+            glow_surf = pygame.transform.gaussian_blur(glow_surf, 5)
+            self.screen.blit(glow_surf, (text_rect.x - 10, text_rect.y - 10))
             self.screen.blit(score_text, text_rect)
             
-            # Draw restart instruction
+            # Draw restart instruction with pulsing effect
+            alpha = int(128 + 127 * math.sin(pygame.time.get_ticks() * 0.005))
             restart_text = pygame.font.Font(None, 36).render('Press ENTER to Play Again', True, (255, 255, 255))
             text_rect = restart_text.get_rect(center=(self.width // 2, self.height // 2 + 100))
+            restart_text.set_alpha(alpha)
             self.screen.blit(restart_text, text_rect)
         
         pygame.display.flip()
 
     def draw_hud(self):
-        # Draw score
+        # Create HUD surface with transparency
+        hud_surface = pygame.Surface((self.width, 80), pygame.SRCALPHA)
+        pygame.draw.rect(hud_surface, (0, 0, 0, 128), (0, 0, self.width, 80))
+        
+        # Draw score with glow
         font = pygame.font.Font(None, 36)
         score_text = font.render(f'Score: {self.score}', True, (255, 255, 255))
-        self.screen.blit(score_text, (10, 10))
+        score_rect = score_text.get_rect(topleft=(20, 20))
+        
+        # Add glow to score
+        glow_surf = pygame.Surface((score_rect.width + 10, score_rect.height + 10), pygame.SRCALPHA)
+        glow_text = font.render(f'Score: {self.score}', True, (255, 255, 255, 128))
+        glow_rect = glow_text.get_rect(center=(glow_surf.get_width()//2, glow_surf.get_height()//2))
+        glow_surf.blit(glow_text, glow_rect)
+        glow_surf = pygame.transform.gaussian_blur(glow_surf, 3)
+        hud_surface.blit(glow_surf, (15, 15))
+        hud_surface.blit(score_text, (20, 20))
         
         # Draw lives
-        lives_text = font.render(f'Lives: {self.players.sprite.lives}', True, (255, 255, 255))
-        self.screen.blit(lives_text, (10, 50))
+        lives_text = font.render('Lives:', True, (255, 255, 255))
+        lives_rect = lives_text.get_rect(topleft=(200, 20))
+        hud_surface.blit(lives_text, lives_rect)
+        
+        # Draw life icons
+        life_icon = pygame.transform.scale(self.images['hero1'], (20, 20))
+        for i in range(self.players.sprite.lives):
+            hud_surface.blit(life_icon, (280 + i * 30, 20))
+        
+        # Draw missile status if unlocked
+        if self.players.sprite.missile_unlocked:
+            missile_text = font.render('Missiles: Ready', True, (0, 255, 0))
+        else:
+            missile_text = font.render(f'Missiles: {self.score}/1000', True, (255, 165, 0))
+        missile_rect = missile_text.get_rect(topleft=(400, 20))
+        hud_surface.blit(missile_text, missile_rect)
+        
+        # Draw the HUD surface
+        self.screen.blit(hud_surface, (0, 0))
 
     def run(self):
         running = True
