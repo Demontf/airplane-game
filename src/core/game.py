@@ -157,8 +157,8 @@ class Game:
                     self.audio.play_music('game')
         
         # Handle continuous shooting
-        if self.state == GameState.PLAYING and self.players.sprite:
-            self.players.sprite.shoot([self.bullets, self.all_sprites], self.network)
+        if self.state == GameState.PLAYING and len(self.players) > 0:
+            next(iter(self.players)).shoot([self.bullets, self.all_sprites], self.network)
         
         return True
 
@@ -185,10 +185,11 @@ class Game:
                     effect.image = effect.animation.update(1/60)  # Assuming 60 FPS
             
             # Update network
-            if self.network and self.players.sprite:
+            if self.network and len(self.players) > 0:
+                player = next(iter(self.players))
                 self.network.send_player_update(
-                    self.players.sprite.position,
-                    self.players.sprite.velocity
+                    player.position,
+                    player.velocity
                 )
                 self.network.update()
         
@@ -272,16 +273,18 @@ class Game:
         lives_rect = lives_text.get_rect(topright=(self.width - 180, y))
         hud_surface.blit(lives_text, lives_rect)
         
-        life_icon = pygame.transform.scale(self.images['player'], (20, 20))
-        for i in range(self.players.sprite.lives):
-            hud_surface.blit(life_icon, (self.width - 160 + i * 30, y))
-        
-        # Draw missile status
-        if hasattr(self.players.sprite, 'missile_unlocked') and self.players.sprite.missile_unlocked:
-            missile_text = font.render('Missiles: Ready', True, (0, 255, 0))
-        else:
-            progress = self.logic.score / self.config.getint('PLAYER', 'MISSILE_UNLOCK_SCORE')
-            missile_text = font.render(f'Missiles: {int(progress * 100)}%', True, (255, 165, 0))
+        if len(self.players) > 0:
+            player = next(iter(self.players))
+            life_icon = pygame.transform.scale(self.images['player'], (20, 20))
+            for i in range(player.lives):
+                hud_surface.blit(life_icon, (self.width - 160 + i * 30, y))
+            
+            # Draw missile status
+            if hasattr(player, 'missile_unlocked') and player.missile_unlocked:
+                missile_text = font.render('Missiles: Ready', True, (0, 255, 0))
+            else:
+                progress = self.logic.score / self.config.getint('PLAYER', 'MISSILE_UNLOCK_SCORE')
+                missile_text = font.render(f'Missiles: {int(progress * 100)}%', True, (255, 165, 0))
         missile_rect = missile_text.get_rect(topright=(self.width - 20, y + 30))
         hud_surface.blit(missile_text, missile_rect)
         
@@ -359,8 +362,8 @@ class Game:
         for player_id, data in game_state.players.items():
             if player_id == self.player_id:
                 self.logic.score = data['score']
-                if self.players.sprite:
-                    self.players.sprite.lives = data['lives']
+                if len(self.players) > 0:
+                    next(iter(self.players)).lives = data['lives']
             elif player_id in self.remote_player_sprites:
                 player = self.remote_player_sprites[player_id]
                 player.lives = data['lives']
