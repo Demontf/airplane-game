@@ -16,7 +16,10 @@ class Game:
         # Initialize display
         self.width = config.getint('GAME', 'SCREEN_WIDTH')
         self.height = config.getint('GAME', 'SCREEN_HEIGHT')
-        self.screen = pygame.display.set_mode((self.width, self.height))
+        display_flags = pygame.HWSURFACE | pygame.DOUBLEBUF
+        if config.getboolean('GAME', 'ENABLE_VSYNC', fallback=True):
+            display_flags |= pygame.SCALED
+        self.screen = pygame.display.set_mode((self.width, self.height), display_flags)
         pygame.display.set_caption(config.get('GAME', 'TITLE'))
         
         # Initialize clock
