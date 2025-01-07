@@ -69,9 +69,21 @@ class Player(pygame.sprite.Sprite):
             self.is_invincible = True
             self.invincible_timer = pygame.time.get_ticks()
 
-    def shoot(self):
-        # TODO: Implement shooting logic
-        pass
+    def shoot(self, groups):
+        # Create regular bullet
+        bullet_img = pygame.image.load('src/assets/images/b2.png').convert_alpha()
+        Bullet(bullet_img, self.rect.center, (0, -10), 1, groups)
+        
+        # Create missiles if unlocked
+        if self.missile_unlocked:
+            current_time = pygame.time.get_ticks()
+            if current_time - self.last_missile_time > 3000:  # 3 seconds between missiles
+                missile_img = pygame.image.load('src/assets/images/b.png').convert_alpha()
+                # Left missile
+                Bullet(missile_img, (self.rect.left, self.rect.centery), (-2, -8), 2, groups)
+                # Right missile
+                Bullet(missile_img, (self.rect.right, self.rect.centery), (2, -8), 2, groups)
+                self.last_missile_time = current_time
 
 class Enemy(pygame.sprite.Sprite):
     def __init__(self, image, enemy_type, speed, groups):
@@ -108,9 +120,19 @@ class Enemy(pygame.sprite.Sprite):
         if self.can_reverse and self.is_special and self.rect.bottom > 500:
             self.velocity.y = -self.speed
 
-    def shoot(self):
-        # TODO: Implement enemy shooting logic
-        pass
+    def shoot(self, groups):
+        if not self.can_shoot:
+            return
+            
+        bullet_img = pygame.image.load('src/assets/images/b3.png').convert_alpha()
+        if self.is_special:
+            # Shoot three bullets in a fan pattern
+            velocities = [(-2, 5), (0, 5), (2, 5)]
+            for vel in velocities:
+                Bullet(bullet_img, self.rect.center, vel, 1, groups)
+        else:
+            # Shoot a single tracking bullet
+            Bullet(bullet_img, self.rect.center, (0, 5), 1, groups)
 
 class Bullet(pygame.sprite.Sprite):
     def __init__(self, image, position, velocity, damage, groups):
