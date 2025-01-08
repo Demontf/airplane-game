@@ -49,17 +49,40 @@ class Player(pygame.sprite.Sprite):
             if current_time - self.invincible_timer > 2000:  # 2 seconds
                 self.is_invincible = False
         
-        # Handle movement
+        # Handle movement with smooth acceleration
         keys = pygame.key.get_pressed()
-        self.velocity.x = (keys[pygame.K_RIGHT] - keys[pygame.K_LEFT]) * self.speed
-        self.velocity.y = (keys[pygame.K_DOWN] - keys[pygame.K_UP]) * self.speed
+        target_velocity = Vector2(
+            (keys[pygame.K_RIGHT] - keys[pygame.K_LEFT]) * self.speed,
+            (keys[pygame.K_DOWN] - keys[pygame.K_UP]) * self.speed
+        )
+        
+        # Smoothly interpolate current velocity to target velocity
+        self.velocity = self.velocity.lerp(target_velocity, 0.2)
+        
+        # Apply minimal threshold to avoid micro-movements
+        if abs(self.velocity.x) < 0.01:
+            self.velocity.x = 0
+        if abs(self.velocity.y) < 0.01:
+            self.velocity.y = 0
         
         # Update position
         self.position += self.velocity
         
-        # Keep player on screen
-        self.position.x = max(0, min(self.position.x, 800))
-        self.position.y = max(0, min(self.position.y, 600))
+        # Keep player on screen with smooth boundary handling
+        margin = 5  # Smooth boundary margin
+        if self.position.x < margin:
+            self.position.x = margin
+            self.velocity.x = 0
+        elif self.position.x > 800 - margin:
+            self.position.x = 800 - margin
+            self.velocity.x = 0
+            
+        if self.position.y < margin:
+            self.position.y = margin
+            self.velocity.y = 0
+        elif self.position.y > 600 - margin:
+            self.position.y = 600 - margin
+            self.velocity.y = 0
         
         self.rect.center = self.position
 

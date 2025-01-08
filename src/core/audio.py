@@ -44,19 +44,31 @@ class AudioManager:
             nchannels = 1
             sampwidth = 2
             framerate = 44100
-            nframes = framerate * 2  # 2 seconds
+            nframes = framerate * 4  # 4 seconds
             comptype = 'NONE'
             compname = 'not compressed'
             
             # Set WAV file parameters
             wav.setparams((nchannels, sampwidth, framerate, nframes, comptype, compname))
             
-            # Create a simple melody
-            frequency = 440  # A4 note
+            # Create a simple melody with multiple frequencies
+            frequencies = [440, 550, 660]  # A4, C#5, E5 notes
             samples = []
             for i in range(nframes):
                 t = float(i) / framerate
-                value = int(32767 * np.sin(2 * np.pi * frequency * t))
+                # Mix multiple frequencies with different amplitudes
+                value = sum([
+                    int(16384 * np.sin(2 * np.pi * f * t)) for f in frequencies
+                ])
+                # Add fade in/out
+                envelope = 1.0
+                if i < framerate:  # Fade in
+                    envelope = i / framerate
+                elif i > nframes - framerate:  # Fade out
+                    envelope = (nframes - i) / framerate
+                value = int(value * envelope)
+                # Clip to prevent overflow
+                value = max(-32767, min(32767, value))
                 packed_value = struct.pack('h', value)
                 samples.append(packed_value)
             

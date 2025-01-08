@@ -43,10 +43,8 @@ class GameLogic:
                 if enemy.take_damage(bullet.damage):
                     self.score += enemy.score_value
                     # Create explosion animation
-                    explosion = pygame.sprite.Sprite()
-                    explosion.image = self.animation.get_animation('explosion', (32, 32)).frames[0]
-                    explosion.rect = explosion.image.get_rect(center=enemy.rect.center)
-                    self.game.effects.add(explosion)
+                    from .effects import Explosion
+                    Explosion(enemy.rect.center, [self.game.effects, self.game.all_sprites])
                     # Play explosion sound
                     self.audio.play_sound('explosion')
                     # Add particles
@@ -76,10 +74,8 @@ class GameLogic:
                     self.audio.play_sound('explosion')
                     # Create explosion animation
                     for hit in hits:
-                        explosion = pygame.sprite.Sprite()
-                        explosion.image = self.animation.get_animation('explosion', (48, 48)).frames[0]
-                        explosion.rect = explosion.image.get_rect(center=hit.rect.center)
-                        self.game.effects.add(explosion)
+                        from .effects import Explosion
+                        Explosion(hit.rect.center, [self.game.effects, self.game.all_sprites])
                         # Add particles
                         self.game.particle_emitter.emit(
                             hit.rect.center,
@@ -102,10 +98,8 @@ class GameLogic:
                     self.audio.play_sound('explosion')
                     # Create smaller explosion animation
                     for hit in hits:
-                        explosion = pygame.sprite.Sprite()
-                        explosion.image = self.animation.get_animation('explosion', (24, 24)).frames[0]
-                        explosion.rect = explosion.image.get_rect(center=hit.rect.center)
-                        self.game.effects.add(explosion)
+                        from .effects import Explosion
+                        Explosion(hit.rect.center, [self.game.effects, self.game.all_sprites])
                     
                     if player.lives <= 0:
                         self.game_over()
