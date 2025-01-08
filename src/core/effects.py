@@ -1,8 +1,5 @@
 import pygame
-import math
-import random
 import numpy as np
-from pygame.math import Vector2
 from pygame import Surface, SRCALPHA
 from typing import Tuple, List
 
@@ -58,10 +55,22 @@ def gaussian_blur(surface: Surface, radius: int = 5) -> Surface:
 class Explosion(pygame.sprite.Sprite):
     def __init__(self, position, groups):
         super().__init__(groups)
-        self.frames = [
-            pygame.image.load(f'src/assets/images/explosion_{i}.png').convert_alpha()
-            for i in range(8)
-        ]
+        try:
+            self.frames = [
+                pygame.image.load(f'src/assets/images/explosion_{i}.png').convert_alpha()
+                for i in range(8)
+            ]
+        except (pygame.error, FileNotFoundError):
+            # Create default explosion frames
+            self.frames = []
+            for i in range(8):
+                surf = pygame.Surface((32, 32), pygame.SRCALPHA)
+                progress = i / 7
+                radius = int(16 * (1 - progress))
+                alpha = int(255 * (1 - progress))
+                pygame.draw.circle(surf, (255, 165, 0, alpha), (16, 16), radius)
+                self.frames.append(surf)
+        
         self.image = self.frames[0]
         self.rect = self.image.get_rect()
         self.rect.center = position
@@ -87,15 +96,14 @@ class ParticleEmitter:
     def emit(self, position, color, num_particles=10, speed=5, lifetime=1.0):
         """Create particles at the given position"""
         for _ in range(num_particles):
-            angle = random.uniform(0, 360)
-            speed = random.uniform(1, speed)
-            velocity = Vector2(
-                speed * math.cos(math.radians(angle)),
-                speed * math.sin(math.radians(angle))
+            angle = np.random.uniform(0, 2 * np.pi)
+            velocity = (
+                np.cos(angle) * speed * np.random.uniform(0.5, 1.5),
+                np.sin(angle) * speed * np.random.uniform(0.5, 1.5)
             )
             self.particles.append({
-                'pos': Vector2(position),
-                'vel': velocity,
+                'pos': [float(position[0]), float(position[1])],
+                'vel': list(velocity),
                 'color': color,
                 'lifetime': lifetime,
                 'time': 0
@@ -105,18 +113,20 @@ class ParticleEmitter:
         """Update all particles"""
         # Update existing particles
         for particle in self.particles[:]:
-            particle['time'] += 0.1
+            particle['time'] += 1/60  # Assuming 60 FPS
             if particle['time'] >= particle['lifetime']:
                 self.particles.remove(particle)
             else:
-                particle['pos'] += particle['vel']
+                # Update position
+                particle['pos'][0] += particle['vel'][0]
+                particle['pos'][1] += particle['vel'][1]
                 # Add gravity effect
-                particle['vel'].y += 0.1
+                particle['vel'][1] += 0.1
     
     def draw(self, surface):
         """Draw all particles"""
         for particle in self.particles:
             alpha = int(255 * (1 - particle['time'] / particle['lifetime']))
             color = (*particle['color'], alpha)
-            pos = (int(particle['pos'].x), int(particle['pos'].y))
+            pos = (int(particle['pos'][0]), int(particle['pos'][1]))
             pygame.draw.circle(surface, color, pos, 2)

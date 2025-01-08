@@ -91,7 +91,9 @@ class Player(pygame.sprite.Sprite):
 
 class Enemy(pygame.sprite.Sprite):
     def __init__(self, image, enemy_type, speed, health=1, score_value=100, is_special=False, bullet_speed=4, shoot_delay=1500, groups=None):
-        super().__init__(groups or [])
+        if groups is None:
+            groups = []
+        super().__init__(*groups)  # Unpack groups list
         self.image = image
         self.rect = self.image.get_rect()
         self.enemy_type = enemy_type

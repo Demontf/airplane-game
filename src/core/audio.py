@@ -127,14 +127,24 @@ class AudioManager:
                         path = os.path.join('src', 'assets', 'sounds', f'bgmusic{ext}')
                         
                     if os.path.exists(path):
-                        pygame.mixer.music.load(path)
-                        pygame.mixer.music.play(-1)  # Loop indefinitely
-                        self.current_music = music_name
-                        return
-                        
-                print(f"Warning: Could not load music {music_name}")
-            except pygame.error as e:
-                print(f"Warning: Could not load music {music_name}: {e}")
+                        try:
+                            pygame.mixer.music.load(path)
+                            pygame.mixer.music.play(-1)  # Loop indefinitely
+                            self.current_music = music_name
+                            return
+                        except pygame.error as e:
+                            print(f"Warning: Could not load music {path}: {e}")
+                            continue
+                
+                # If no music file was found or loaded, create a default one
+                self.create_default_music()
+                path = os.path.join('src', 'assets', 'sounds', 'bgmusic.wav')
+                pygame.mixer.music.load(path)
+                pygame.mixer.music.play(-1)
+                self.current_music = music_name
+                
+            except Exception as e:
+                print(f"Warning: Could not play music {music_name}: {e}")
                 
     def play_sound(self, sound_name):
         """Play a sound effect"""

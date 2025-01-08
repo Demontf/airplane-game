@@ -37,6 +37,7 @@ class Game:
         # Initialize sprite groups
         self.all_sprites = pygame.sprite.Group()
         self.players = pygame.sprite.Group()
+        self.remote_players = pygame.sprite.Group()
         self.enemies = pygame.sprite.Group()
         self.bullets = pygame.sprite.Group()
         self.enemy_bullets = pygame.sprite.Group()
@@ -226,8 +227,9 @@ class Game:
                 if sprite.is_invincible:
                     shield_anim = self.animation.get_animation('shield', (64, 64))
                     shield_frame = shield_anim.update(1/60)
-                    shield_rect = shield_frame.get_rect(center=sprite.rect.center)
-                    self.screen.blit(shield_frame, shield_rect)
+                    if shield_frame:  # Check if frame exists
+                        shield_rect = shield_frame.get_rect(center=sprite.rect.center)
+                        self.screen.blit(shield_frame, shield_rect)
             
             # Draw HUD
             self.draw_hud()
